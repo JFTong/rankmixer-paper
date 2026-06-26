@@ -281,29 +281,78 @@ def generate_criteo_synthetic(n_samples=80000, seed=42):
     return df, cat_cardinalities
 
 
-# 生成数据
-print("生成合成 Criteo 风格广告数据...")
-df, cat_cardinalities = generate_criteo_synthetic(n_samples=40000)
+# 生成数据函数定义完毕，实际调用在下方 "数据源选择" Cell
+print("合成数据生成函数定义完成。")
+print("如需使用真实 Criteo 数据，设置 USE_REAL_DATA=True")
 
-# 可选: 尝试下载 DeepCTR 真实样本
-def try_download_criteo_sample():
-    \"\"\"尝试下载 DeepCTR 提供的 criteo_sample.txt (约 200 行)\"\"\"
-    import urllib.request
-    url = "https://raw.githubusercontent.com/shenweichen/DeepCTR/master/examples/criteo_sample.txt"
-    try:
-        print("尝试下载真实 Criteo 样本...")
-        urllib.request.urlretrieve(url, "./criteo_data/real_criteo_sample.txt")
-        real = pd.read_csv("./criteo_data/real_criteo_sample.txt")
-        print(f"  ✓ 成功下载: {real.shape[0]} 行真实 Criteo 样本 (仅作格式参考)")
-        return real
-    except Exception as e:
-        print(f"  (下载失败, 使用合成数据): {e}")
-        return None
+""")
 
-os.makedirs("./criteo_data", exist_ok=True)
-real_sample = try_download_criteo_sample()
+# ============================================================
+# Cell 4b: Criteo 真实数据加载 (可选)
+# ============================================================
+md("""## 📥 选项: 使用真实 Criteo 数据
 
-print(f"\\n使用合成数据: {df.shape[0]} 行")
+### 为什么用真实数据？
+
+合成数据适合快速验证架构，但要获得有说服力的结果，推荐使用真实 Criteo 广告点击数据：
+- **Kaggle Criteo** (~11GB, 4500万行) — 最推荐，一键下载
+- **Criteo 1TB** (276GB, HuggingFace 流式) — 最大规模，不占磁盘
+- **天池镜像** — 国内下载更快
+- **本地文件** — 已下载的 `.txt` 文件
+
+### 数据格式 (tab 分隔)
+
+```
+<label>\t<I1>\t...\t<I13>\t<C1>\t...\t<C26>
+```
+
+与合成数据的列名完全一致(`I1-I13`, `C1-C26`, `label`)。缺失值为空字段。
+
+### 切换方式
+
+修改下方 `USE_REAL_DATA` 变量即可在合成/真实数据之间切换。
+""")
+
+code("""# ============================================================
+# 数据源选择: 合成 vs 真实 Criteo
+# ============================================================
+from criteo_loader import load_criteo, download_and_cache
+
+USE_REAL_DATA = False          # ⬅ 改为 True 使用真实 Criteo 数据
+REAL_DATA_SOURCE = 'kaggle'    # 'kaggle' | 'local' | 'hf' | 'tianchi'
+REAL_DATA_ROWS = 5_000_000     # 加载行数 (100万=快速, 500万=充分, None=全部)
+LOCAL_DATA_PATH = './criteo_data/train.txt'  # source='local' 时需指定
+
+if USE_REAL_DATA:
+    print("⚠️ 加载真实 Criteo 数据 (首次运行需下载)...")
+    
+    if REAL_DATA_SOURCE == 'kaggle':
+        # Kaggle: 首次会自动下载 (~11GB)，后续从缓存读取
+        df = download_and_cache(
+            output_dir='./criteo_data',
+            n_rows=REAL_DATA_ROWS,
+            source='kaggle',
+        )
+    elif REAL_DATA_SOURCE in ('local', 'tianchi'):
+        df = load_criteo(
+            source=REAL_DATA_SOURCE,
+            path=LOCAL_DATA_PATH,
+            n_rows=REAL_DATA_ROWS,
+        )
+    elif REAL_DATA_SOURCE == 'hf':
+        # HuggingFace Criteo 1TB: 流式读取，不占磁盘
+        df = load_criteo(
+            source='hf',
+            n_rows=REAL_DATA_ROWS,
+        )
+    
+    # 真实数据下 cat_dims 在预处理时从数据推断
+    cat_cardinalities = None
+    print(f"\\n真实数据加载完成: {len(df):,} 行")
+else:
+    print("使用合成数据 (设置 USE_REAL_DATA=True 切换到真实 Criteo)")
+    df, cat_cardinalities = generate_criteo_synthetic(n_samples=40000)
+
 df.head()
 """)
 
@@ -1243,7 +1292,7 @@ md("""## 📋 总结
 
 # Assemble & write
 nb.cells = cells
-output_path = '/Users/minitong/rankmixer/rankmixer_implementation.ipynb'
+output_path = '/tmp/rankmixer-paper/rankmixer_implementation.ipynb'
 with open(output_path, 'w') as f:
     nbf.write(nb, f)
 
