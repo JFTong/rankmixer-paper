@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+criteo_data/
+*.pt
+*.png
+.DS_Store
