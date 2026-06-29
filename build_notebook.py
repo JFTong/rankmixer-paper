@@ -295,18 +295,31 @@ md("""## 📥 选项: 使用真实 Criteo 数据
 ### 为什么用真实数据？
 
 合成数据适合快速验证架构，但要获得有说服力的结果，推荐使用真实 Criteo 广告点击数据：
-- **Kaggle Criteo** (~11GB, 4500万行) — 最推荐，一键下载
-- **Criteo 1TB** (276GB, HuggingFace 流式) — 最大规模，不占磁盘
+- **HuggingFace Criteo 1TB** (276GB, 流式) — 🏆 默认推荐，无需账号，边下边存
+- **Kaggle Criteo** (~11GB, 4500万行) — 需 Kaggle 账号+接受竞赛条款
 - **天池镜像** — 国内下载更快
 - **本地文件** — 已下载的 `.txt` 文件
 
-### 数据格式 (tab 分隔)
+### 🔄 缓存机制
 
-```
-<label>\t<I1>\t...\t<I13>\t<C1>\t...\t<C26>
+首次运行 → HuggingFace 流式读取 → 自动存为 `./criteo_data/criteo_train.parquet`  
+后续运行 → 直接从本地 parquet 加载（秒开，无需网络）
+
+### 下次直接从本地加载
+
+```python
+# 如果已有缓存的 parquet 文件，无需网络：
+df = load_criteo('local', path='./criteo_data/criteo_train.parquet')
+# 或者跳过 criteo_loader，直接用 pandas：
+import pandas as pd
+df = pd.read_parquet('./criteo_data/criteo_train.parquet')
 ```
 
-与合成数据的列名完全一致(`I1-I13`, `C1-C26`, `label`)。缺失值为空字段。
+### 首次准备
+
+```bash
+pip install datasets   # HuggingFace 依赖（仅首次需要）
+```
 
 ### 切换方式
 
@@ -317,38 +330,49 @@ code("""# ============================================================
 # 数据源选择: 合成 vs 真实 Criteo
 # ============================================================
 from criteo_loader import load_criteo, download_and_cache
+import pandas as pd
+import os
 
 USE_REAL_DATA = False          # ⬅ 改为 True 使用真实 Criteo 数据
-REAL_DATA_SOURCE = 'kaggle'    # 'kaggle' | 'local' | 'hf' | 'tianchi'
+REAL_DATA_SOURCE = 'hf'        # 默认 HF: 流式读取 → 本地缓存，无需账号
 REAL_DATA_ROWS = 5_000_000     # 加载行数 (100万=快速, 500万=充分, None=全部)
-LOCAL_DATA_PATH = './criteo_data/train.txt'  # source='local' 时需指定
+CACHE_DIR = './criteo_data'    # 本地缓存目录
+CACHE_FILE = os.path.join(CACHE_DIR, 'criteo_train.parquet')
 
 if USE_REAL_DATA:
-    print("⚠️ 加载真实 Criteo 数据 (首次运行需下载)...")
-    
-    if REAL_DATA_SOURCE == 'kaggle':
-        # Kaggle: 首次会自动下载 (~11GB)，后续从缓存读取
-        df = download_and_cache(
-            output_dir='./criteo_data',
-            n_rows=REAL_DATA_ROWS,
-            source='kaggle',
-        )
-    elif REAL_DATA_SOURCE in ('local', 'tianchi'):
-        df = load_criteo(
-            source=REAL_DATA_SOURCE,
-            path=LOCAL_DATA_PATH,
-            n_rows=REAL_DATA_ROWS,
-        )
-    elif REAL_DATA_SOURCE == 'hf':
-        # HuggingFace Criteo 1TB: 流式读取，不占磁盘
-        df = load_criteo(
-            source='hf',
-            n_rows=REAL_DATA_ROWS,
-        )
+    # 优先从本地缓存加载（秒开）
+    if os.path.exists(CACHE_FILE):
+        print(f"📂 从本地缓存加载: {CACHE_FILE}")
+        df = pd.read_parquet(CACHE_FILE)
+    else:
+        print("⚠️ 首次运行，从 HuggingFace 流式下载 Criteo 数据...")
+        print("   (约 5-10 分钟，取决于网络和行数)")
+        print("   后续运行将直接从本地缓存秒开。\\n")
+        
+        if REAL_DATA_SOURCE == 'hf':
+            # HF 流式读取 → 自动缓存到本地 parquet
+            df = download_and_cache(
+                output_dir=CACHE_DIR,
+                n_rows=REAL_DATA_ROWS,
+                source='hf',
+            )
+        elif REAL_DATA_SOURCE == 'kaggle':
+            df = download_and_cache(
+                output_dir=CACHE_DIR,
+                n_rows=REAL_DATA_ROWS,
+                source='kaggle',
+            )
+        elif REAL_DATA_SOURCE in ('local', 'tianchi'):
+            LOCAL_DATA_PATH = './criteo_data/train.txt'
+            df = load_criteo(
+                source=REAL_DATA_SOURCE,
+                path=LOCAL_DATA_PATH,
+                n_rows=REAL_DATA_ROWS,
+            )
     
     # 真实数据下 cat_dims 在预处理时从数据推断
     cat_cardinalities = None
-    print(f"\\n真实数据加载完成: {len(df):,} 行")
+    print(f"\\n真实数据就绪: {len(df):,} 行, CTR={df['label'].mean():.4f}")
 else:
     print("使用合成数据 (设置 USE_REAL_DATA=True 切换到真实 Criteo)")
     df, cat_cardinalities = generate_criteo_synthetic(n_samples=40000)
